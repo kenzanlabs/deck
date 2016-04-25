@@ -77,6 +77,6 @@ module.exports = angular
       }
     }
     function deviceNameFromInt(int) {
-      return 'dev/sd' + String.fromCharCode(97 + int);
+      return '/dev/sd' + String.fromCharCode(97 + int);
     }
   });
