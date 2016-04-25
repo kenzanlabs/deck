@@ -23,7 +23,7 @@ describe('Controller: Azure ServerGroupDetailsCtrl', function () {
       
       controller = $controller('azureServerGroupDetailsCtrl', {
         $scope: $scope,
-        $state: $state;
+        $state: $state,
         app: application,
         serverGroup: {}
       });
