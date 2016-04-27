@@ -9,12 +9,14 @@ module.exports = angular
     return {
       restrict: 'E',
       templateUrl: require('./blockDevices.directive.html'),
+      require: '^?form',
       scope: true,
       bindToController: {
         command: '=',
       },
       controllerAs: 'blockDevicesCtrl',
       controller: 'BlockDevicesCtrl',
+      link: postLink
     };
   }).controller('BlockDevicesCtrl', function ($scope) {
     let self = this,
@@ -25,7 +27,26 @@ module.exports = angular
     this.size = currentBlocks ? this.command.blockDevices[0].size : '';
     this.sizeRequired = !!currentBlocks;
     this.deleteOnTermination = currentBlocks ? this.command.blockDevices[0].deleteOnTermination : true;
+    this.volumeSizeMin = 1;
     this.volumeSizeMax = 16384;
+    this.volumeTypes = {
+      'gp2': {
+        min: 1,
+        max: 16384
+      },
+      'st1': {
+        min: 500,
+        max: 16384
+      },
+      'sc1': {
+        min: 500,
+        max: 16384
+      },
+      'standard': {
+        min: 1,
+        max: 1024
+      }
+    };
 
     this.updateValue = updateValue;
     this.attachDevices = attachDevices;
@@ -46,12 +67,9 @@ module.exports = angular
       }
     });
     $scope.$watch('blockDevicesCtrl.volumeType', (newVal, oldVal) => {
-      if (newVal === 'gp2') {
-        this.volumeSizeMax = 16384;
-      } else {
-        this.volumeSizeMax = 1024;
-      }
       if (newVal !== oldVal) {
+        this.volumeSizeMin = this.volumeTypes[newVal].min;
+        this.volumeSizeMax = this.volumeTypes[newVal].max;
         this.updateValue('volumeType', newVal);
       }
     });
@@ -61,7 +79,7 @@ module.exports = angular
       }
     });
     function updateValue(key, val) {
-      self.command.blockDevices.forEach((device)=>{
+      self.command.blockDevices.forEach((device) => {
         device[key] = val;
       });
     }
@@ -80,3 +98,19 @@ module.exports = angular
       return '/dev/sd' + String.fromCharCode(97 + int);
     }
   });
+
+function postLink($scope, element, attrs, form) {
+  if (!form) {
+    return;
+  }
+  $scope.$watch('blockDevicesCtrl.volumeType', (newVal, oldVal) => {
+    if (newVal !== oldVal) {
+      form.size.$setDirty();
+    }
+  });
+  $scope.$watch('blockDevicesCtrl.numberOfBlockDevices', (newVal) => {
+    if (typeof newVal !== 'undefined' && newVal !== '' && newVal > 0) {
+      form.size.$setDirty();
+    }
+  });
+}
