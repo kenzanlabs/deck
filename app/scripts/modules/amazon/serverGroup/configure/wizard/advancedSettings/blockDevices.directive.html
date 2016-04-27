@@ -1,5 +1,5 @@
 <div class="container-fluid">
-  <div class="row">
+  <div class="form-group">
     <div class="col-md-5 sm-label-right">
       <b>EBS Volumes (optional)</b>
       <help-field key="aws.serverGroup.ebsVolumes"></help-field>
@@ -12,36 +12,31 @@
              ng-model="blockDevicesCtrl.numberOfBlockDevices"/>
     </div>
   </div>
-  <div class="row">
+  <div class="form-group">
     <div class="col-md-5 sm-label-right">
       <b>Volume Size (GB)</b>
       <help-field key="aws.serverGroup.ebsVolumeSize"></help-field>
     </div>
     <div class="col-md-6">
       <input type="number"
+             name="size"
              class="form-control input-sm"
-             min="1"
+             min="{{blockDevicesCtrl.volumeSizeMin}}"
              max="{{blockDevicesCtrl.volumeSizeMax}}"
              ng-required="blockDevicesCtrl.sizeRequired"
              ng-model="blockDevicesCtrl.size"/>
     </div>
   </div>
-  <div class="row">
+  <div class="form-group">
     <div class="col-md-5 sm-label-right"><b>Volume Type</b></div>
-    <div class="col-md-2 radio">
+    <div class="col-md-1 radio" ng-repeat="(type, sizes) in blockDevicesCtrl.volumeTypes">
       <label>
-        <input type="radio" ng-model="blockDevicesCtrl.volumeType" ng-value="'gp2'"/>
-        gp2
-      </label>
-    </div>
-    <div class="col-md-2 radio">
-      <label>
-        <input type="radio" ng-model="blockDevicesCtrl.volumeType" ng-value="'standard'"/>
-        standard
+        <input type="radio" ng-model="blockDevicesCtrl.volumeType" ng-value="type"/>
+        {{type}}
       </label>
     </div>
   </div>
-  <div class="row">
+  <div class="form-group">
     <div class="col-md-5 sm-label-right"><b>Delete Volumes on Termination</b></div>
     <div class="col-md-2 radio">
       <label>

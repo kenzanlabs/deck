@@ -21,6 +21,12 @@ describe('Controller: BlockDevicesCtrl', function () {
 
   it('should toggle sizeRequired based on numberOfBlockDevices', function() {
     expect(blockDevicesCtrl.sizeRequired).toBe(false);
+    scope.blockDevicesCtrl.numberOfBlockDevices = 2;
+    scope.$digest();
+    expect(blockDevicesCtrl.sizeRequired).toBe(true);
+    scope.blockDevicesCtrl.numberOfBlockDevices = 0;
+    scope.$digest();
+    expect(blockDevicesCtrl.sizeRequired).toBe(false);
   });
 
   it('should add and remove block devices based on number', function(){
@@ -28,7 +34,12 @@ describe('Controller: BlockDevicesCtrl', function () {
     scope.blockDevicesCtrl.numberOfBlockDevices = 2;
     scope.$digest();
     expect(blockDevicesCtrl.command.blockDevices.length).toBe(2);
+  });
 
+  it('should set the correct min and max volume size based on volumeType', function(){
+    scope.blockDevicesCtrl.volumeType = 'sc1';
+    scope.$digest();
+    expect(scope.blockDevicesCtrl.volumeSizeMax).toBe(16384);
   });
 
   it('should update the size value on every block device', function() {
