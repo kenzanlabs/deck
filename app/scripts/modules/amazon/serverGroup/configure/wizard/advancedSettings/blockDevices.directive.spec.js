@@ -39,7 +39,6 @@ describe('Controller: BlockDevicesCtrl', function () {
   it('should set the correct min and max volume size based on volumeType', function(){
     scope.blockDevicesCtrl.volumeType = 'sc1';
     scope.$digest();
-    // expect(blockDevicesCtrl.volumeSizeMin).toBe(500);
     expect(scope.blockDevicesCtrl.volumeSizeMax).toBe(16384);
   });
 
