@@ -50,7 +50,11 @@ module.exports = angular
 
     this.updateValue = updateValue;
     this.attachDevices = attachDevices;
+    this.updateDeploymentMetadataTag = updateDeploymentMetadataTag;
 
+    $scope.$watch('command.useAmiBlockDeviceMappings', () => {
+      this.updateDeploymentMetadataTag();
+    });
     $scope.$watch('blockDevicesCtrl.numberOfBlockDevices', (newVal) => {
       if (typeof newVal !== 'undefined' && newVal !== '' && newVal > 0) {
         this.sizeRequired = true;
@@ -60,6 +64,7 @@ module.exports = angular
         this.sizeRequired = false;
         delete this.command.blockDevices;
       }
+      this.updateDeploymentMetadataTag();
     });
     $scope.$watch('blockDevicesCtrl.size', (newVal, oldVal) => {
       if (newVal !== oldVal) {
@@ -99,6 +104,16 @@ module.exports = angular
     }
     function deviceNameFromInt(int) {
       return '/dev/sd' + String.fromCharCode(97 + int);
+    }
+    function updateDeploymentMetadataTag() {
+      if (self.command.useAmiBlockDeviceMappings) {
+        self.command.tags['spinnaker:deploymentMetadata'] = 'ami';
+      } else if (typeof self.numberOfBlockDevices !== 'undefined' &&
+          self.numberOfBlockDevices !== '' && self.numberOfBlockDevices > 0) {
+        this.command.tags['spinnaker:deploymentMetadata'] = 'custom:generated';
+      } else {
+        self.command.tags['spinnaker:deploymentMetadata'] = 'default';
+      }
     }
   });
 

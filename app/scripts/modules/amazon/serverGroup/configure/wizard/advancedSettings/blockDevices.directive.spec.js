@@ -13,6 +13,7 @@ describe('Controller: BlockDevicesCtrl', function () {
       $scope: scope
     },{
       command: {
+        tags: {}
       }
     });
     scope.blockDevicesCtrl = blockDevicesCtrl;
@@ -28,7 +29,7 @@ describe('Controller: BlockDevicesCtrl', function () {
     expect(blockDevicesCtrl.sizeRequired).toBe(false);
   });
 
-  it('should add and remove block devices based on number', function(){
+  it('should add and remove block devices based on number', function() {
     expect(blockDevicesCtrl.command.blockDevices).toBe(undefined);
     scope.blockDevicesCtrl.numberOfBlockDevices = 2;
     scope.$digest();
@@ -38,7 +39,7 @@ describe('Controller: BlockDevicesCtrl', function () {
     expect(blockDevicesCtrl.command.blockDevices).toBe(undefined);
   });
 
-  it('should set the correct min and max volume size based on volumeType', function(){
+  it('should set the correct min and max volume size based on volumeType', function() {
     scope.blockDevicesCtrl.volumeType = 'sc1';
     scope.$digest();
     expect(scope.blockDevicesCtrl.volumeSizeMax).toBe(16384);
@@ -48,13 +49,33 @@ describe('Controller: BlockDevicesCtrl', function () {
     var newValue = 2;
     scope.blockDevicesCtrl.numberOfBlockDevices = 2;
     scope.$digest();
-    blockDevicesCtrl.command.blockDevices.forEach(function(device){
+    blockDevicesCtrl.command.blockDevices.forEach(function(device) {
       expect(device.size).toBe('');
     });
     scope.blockDevicesCtrl.size = newValue;
     scope.$digest();
-    blockDevicesCtrl.command.blockDevices.forEach(function(device){
+    blockDevicesCtrl.command.blockDevices.forEach(function(device) {
       expect(device.size).toBe(newValue);
     });
+  });
+
+  it('should set deployment metadata tag to \'default\'', function() {
+    expect(blockDevicesCtrl.command.tags['spinnaker:deploymentMetadata']).toBeUndefined;
+    scope.$digest();
+    expect(blockDevicesCtrl.command.tags['spinnaker:deploymentMetadata']).toBe('default');
+  });
+
+  it('should set deployment metadata tag to \'ami\'', function() {
+    expect(blockDevicesCtrl.command.tags['spinnaker:deploymentMetadata']).toBeUndefined;
+    blockDevicesCtrl.command.useAmiBlockDeviceMappings = true;
+    scope.$digest();
+    expect(blockDevicesCtrl.command.tags['spinnaker:deploymentMetadata']).toBe('ami');
+  });
+
+  it('should set deployment metadata tag to \'custom:generated\'', function() {
+    expect(blockDevicesCtrl.command.tags['spinnaker:deploymentMetadata']).toBeUndefined;
+    blockDevicesCtrl.numberOfBlockDevices = 2;
+    scope.$digest();
+    expect(blockDevicesCtrl.command.tags['spinnaker:deploymentMetadata']).toBe('custom:generated');
   });
 });
