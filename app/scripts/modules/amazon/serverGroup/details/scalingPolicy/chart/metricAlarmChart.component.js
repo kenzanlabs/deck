@@ -2,7 +2,10 @@
 
 const angular = require('angular');
 
-require('style!n3-charts/build/LineChart.css');
+// TODO: Remove LineChartHack, replace require with commented out one once
+// https://github.com/n3-charts/line-chart/issues/512 is resolved
+// require('style!n3-charts/build/LineChart.css');
+require('./LineChartHack.css');
 require('./metricAlarmChart.component.less');
 
 module.exports = angular
@@ -180,8 +183,6 @@ module.exports = angular
         this.alarmUpdated.subscribe(() => configureChart());
       };
 
-      // HACK: This won't do anything until a fix for https://github.com/angular/angular.js/issues/14020 is released.
-      // It will probably lead to some very small memory leaks, and possibly some exceptions that the user will not see.
       this.$onDestroy = () => {
         if (this.alarmUpdatedCreated) {
           this.alarmUpdated.dispose();

@@ -3,16 +3,19 @@
 describe('Controller: azureCreateLoadBalancerCtrl', function () {
 
   var $http;
+  var API;
 
   // load the controller's module
   beforeEach(
     window.module(
-      require('./createLoadBalancer.controller')
+      require('./createLoadBalancer.controller'),
+      require('../../../core/api/api.service')
     )
   );
 
   // Initialize the controller and a mock scope
-  beforeEach(window.inject(function ($controller, $rootScope) {
+  beforeEach(window.inject(function ($controller, $rootScope, _API_) {
+    API = _API_;
     this.$scope = $rootScope.$new();
     this.ctrl = $controller('azureCreateLoadBalancerCtrl', {
       $scope: this.$scope,
@@ -34,20 +37,20 @@ describe('Controller: azureCreateLoadBalancerCtrl', function () {
     expect(lb.probes.length).toEqual(1);
     expect(lb.loadBalancingRules.length).toEqual(1);
 
-    expect(lb.loadBalancingRules[0].protocol).toEqual('TCP');
+    expect(lb.loadBalancingRules[0].protocol).toEqual('HTTP');
 
     expect(this.$scope.existingLoadBalancerNames).toEqual(undefined);
     expect(lb.providerType).toEqual(undefined);
   });
 
   it('makes the expected REST calls for data for a new loadbalancer', function() {
-    $http.when('GET', '/loadBalancers?provider=azure').respond([]);
-    $http.when('GET', '/securityGroups').respond({});
-    $http.when('GET', '/credentials').respond([]);
-    $http.when('GET', '/credentials/azure-test').respond([]);
-    $http.when('GET', '/subnets').respond([]);
+    $http.when('GET', API.baseUrl + '/loadBalancers?provider=azure').respond([]);
+    $http.when('GET', API.baseUrl + '/securityGroups').respond({});
+    $http.when('GET', API.baseUrl + '/credentials').respond([]);
+    $http.when('GET', API.baseUrl + '/credentials/azure-test').respond([]);
+    $http.when('GET', API.baseUrl + '/subnets').respond([]);
 
-    $http.expectGET('/loadBalancers?provider=azure');
+    $http.expectGET(API.baseUrl + '/loadBalancers?provider=azure');
     $http.flush();
   });
 

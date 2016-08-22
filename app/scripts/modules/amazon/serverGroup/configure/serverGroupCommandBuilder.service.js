@@ -3,7 +3,6 @@
 let angular = require('angular');
 
 module.exports = angular.module('spinnaker.aws.serverGroupCommandBuilder.service', [
-  require('exports?"restangular"!imports?_=lodash!restangular'),
   require('../../../core/account/account.service.js'),
   require('../../../core/subnet/subnet.read.service.js'),
   require('../../../core/instance/instanceTypeService.js'),
@@ -11,7 +10,7 @@ module.exports = angular.module('spinnaker.aws.serverGroupCommandBuilder.service
   require('./serverGroupConfiguration.service.js'),
   require('../../../core/utils/lodash.js'),
 ])
-  .factory('awsServerGroupCommandBuilder', function (settings, Restangular, $q,
+  .factory('awsServerGroupCommandBuilder', function (settings, $q,
                                                      accountService, subnetReader, namingService, instanceTypeService,
                                                      awsServerGroupConfigurationService, _) {
 
@@ -33,6 +32,7 @@ module.exports = angular.module('spinnaker.aws.serverGroupCommandBuilder.service
 
           var credentials = asyncData.credentialsKeyedByAccount[defaultCredentials];
           var keyPair = credentials ? credentials.defaultKeyPair : null;
+          var applicationAwsSettings = _.get(application, 'attributes.providerSettings.aws', {});
 
           var command = {
             application: application.name,
@@ -59,6 +59,7 @@ module.exports = angular.module('spinnaker.aws.serverGroupCommandBuilder.service
             suspendedProcesses: [],
             securityGroups: [],
             tags: {},
+            useAmiBlockDeviceMappings: applicationAwsSettings.useAmiBlockDeviceMappings || false,
             viewState: {
               instanceProfile: 'custom',
               useAllImageSelection: false,
@@ -168,6 +169,8 @@ module.exports = angular.module('spinnaker.aws.serverGroupCommandBuilder.service
         // These processes should never be copied over, as the affect launching instances and enabling traffic
         let enabledProcesses = ['Launch', 'Terminate', 'AddToLoadBalancer'];
 
+        var applicationAwsSettings = _.get(application, 'attributes.providerSettings.aws', {});
+
         var command = {
           application: application.name,
           strategy: '',
@@ -198,6 +201,7 @@ module.exports = angular.module('spinnaker.aws.serverGroupCommandBuilder.service
             .map((process) => process.processName)
             .filter((name) => enabledProcesses.indexOf(name) < 0),
           tags: serverGroup.tags || {},
+          useAmiBlockDeviceMappings: applicationAwsSettings.useAmiBlockDeviceMappings || false,
           viewState: {
             instanceProfile: asyncData.instanceProfile,
             useAllImageSelection: false,

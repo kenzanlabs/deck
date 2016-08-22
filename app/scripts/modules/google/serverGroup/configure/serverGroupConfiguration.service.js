@@ -11,10 +11,13 @@ module.exports = angular.module('spinnaker.serverGroup.configure.gce.configurati
   require('../../../core/subnet/subnet.read.service.js'),
   require('../../image/image.reader.js'),
   require('../../instance/gceInstanceType.service.js'),
+  require('./../../instance/custom/customInstanceBuilder.gce.service.js'),
+  require('../../loadBalancer/elSevenUtils.service.js'),
 ])
   .factory('gceServerGroupConfigurationService', function(gceImageReader, accountService, securityGroupReader,
                                                           gceInstanceTypeService, cacheInitializer,
-                                                          $q, loadBalancerReader, networkReader, subnetReader, _) {
+                                                          $q, loadBalancerReader, networkReader, subnetReader,
+                                                          settings, _, gceCustomInstanceBuilderService, elSevenUtils) {
 
     var persistentDiskTypes = [
       'pd-standard',
@@ -75,7 +78,7 @@ module.exports = angular.module('spinnaker.serverGroup.configure.gce.configurati
 
         if (command.loadBalancers && command.loadBalancers.length) {
           // Verify all load balancers are accounted for; otherwise, try refreshing load balancers cache.
-          var loadBalancerNames = getLoadBalancerNames(command);
+          var loadBalancerNames = _.pluck(getLoadBalancers(command), 'name');
           if (_.intersection(loadBalancerNames, command.loadBalancers).length < command.loadBalancers.length) {
             loadBalancerReloader = refreshLoadBalancers(command, true);
           }
@@ -122,23 +125,75 @@ module.exports = angular.module('spinnaker.serverGroup.configure.gce.configurati
 
       return gceImageReader.findImages({
         provider: command.selectedProvider,
-        q: packageBase + '-*',
+        q: packageBase + '*',
       });
     }
 
     function configureInstanceTypes(command) {
-      var result = { dirty: {} };
+      let result = { dirty : {} };
       if (command.region) {
-        var filtered = gceInstanceTypeService.getAvailableTypesForRegions(command.backingData.instanceTypes, [command.region]);
-        filtered = sortInstanceTypes(filtered);
-        if (command.instanceType && filtered.indexOf(command.instanceType) === -1) {
-          command.instanceType = null;
-          result.dirty.instanceType = true;
-        }
-        command.backingData.filtered.instanceTypes = filtered;
+        let results = [ result.dirty ];
+
+        results.push(configureCustomInstanceTypes(command).dirty);
+        results.push(configureStandardInstanceTypes(command).dirty);
+
+        angular.extend(...results);
       } else {
         command.backingData.filtered.instanceTypes = [];
       }
+      return result;
+    }
+
+    function configureStandardInstanceTypes(command) {
+      let result = { dirty: {} };
+      let locations = command.regional ? [ command.region ] : [ command.zone ];
+      let filtered = gceInstanceTypeService.getAvailableTypesForLocations(command.backingData.instanceTypes, locations);
+      filtered = sortInstanceTypes(filtered);
+      let instanceType = command.instanceType;
+      if (_.every([ instanceType, !_.startsWith(instanceType, 'custom'), !_.contains(filtered, instanceType) ])) {
+        command.instanceType = null;
+        result.dirty.instanceType = true;
+      }
+      command.backingData.filtered.instanceTypes = filtered;
+      return result;
+    }
+
+    function configureCustomInstanceTypes(command) {
+      let result = { dirty: {} },
+        vCpuCount = _.get(command, 'viewState.customInstance.vCpuCount'),
+        memory = _.get(command, 'viewState.customInstance.memory');
+      let { zone, regional, region } = command;
+      let location = regional ? region : zone;
+
+      if (zone || regional) {
+        _.set(command,
+          'backingData.customInstanceTypes.vCpuList',
+          gceCustomInstanceBuilderService.generateValidVCpuListForLocation(location)
+        );
+      }
+
+      // initializes vCpuCount so that memory selector will be populated.
+      if (_.some([ !vCpuCount, !gceCustomInstanceBuilderService.vCpuCountForLocationIsValid(vCpuCount, location)] )) {
+        vCpuCount = _.get(command, 'backingData.customInstanceTypes.vCpuList[0]');
+        _.set(command, 'viewState.customInstance.vCpuCount', vCpuCount);
+      }
+
+      _.set(
+        command,
+        'backingData.customInstanceTypes.memoryList',
+        gceCustomInstanceBuilderService.generateValidMemoryListForVCpuCount(vCpuCount)
+      );
+
+      if (_.every([ memory, vCpuCount, !gceCustomInstanceBuilderService.memoryIsValid(memory, vCpuCount) ])) {
+        _.set(
+          command,
+          'viewState.customInstance.memory',
+          undefined
+        );
+        result.dirty.instanceType = true;
+        command.instanceType = null;
+      }
+
       return result;
     }
 
@@ -187,47 +242,79 @@ module.exports = angular.module('spinnaker.serverGroup.configure.gce.configurati
       let regions = command.backingData.credentialsKeyedByAccount[command.credentials].regions;
       if (_.isArray(regions)) {
         filteredData.zones = _.find(regions, {name: command.region}).zones;
+        filteredData.truncatedZones = _.takeRight(filteredData.zones.sort(), 3);
       } else {
         // TODO(duftler): Remove this once we finish deprecating the old style regions/zones in clouddriver GCE credentials.
         filteredData.zones = regions[command.region];
       }
       if (!_(filteredData.zones).contains(command.zone)) {
-        command.zone = '';
-        result.dirty.zone = true;
+        delete command.zone;
+        if (!command.regional) {
+          result.dirty.zone = true;
+        }
       }
       return result;
     }
 
-    function getLoadBalancerNames(command) {
+    function getLoadBalancers(command) {
       return _(command.backingData.loadBalancers)
         .pluck('accounts')
         .flatten(true)
         .filter({name: command.credentials})
         .pluck('regions')
         .flatten(true)
-        .filter({name: command.region})
         .pluck('loadBalancers')
         .flatten(true)
-        .pluck('name')
+        .filter(_.curry(isRelevantLoadBalancer)(command))
         .unique()
         .valueOf();
+    }
+
+    function isRelevantLoadBalancer(command, loadBalancer) {
+      return elSevenUtils.isElSeven(loadBalancer) || loadBalancer.region === command.region;
     }
 
     function configureLoadBalancerOptions(command) {
       var results = { dirty: {} };
       var current = command.loadBalancers;
-      var newLoadBalancers = getLoadBalancerNames(command);
+      var newLoadBalancerObjects = getLoadBalancers(command);
+      command.backingData.filtered.loadBalancerIndex = _.indexBy(newLoadBalancerObjects, 'name');
+      command.backingData.filtered.loadBalancers = _.map(newLoadBalancerObjects, 'name');
 
       if (current && command.loadBalancers) {
-        var matched = _.intersection(newLoadBalancers, command.loadBalancers);
+        var matched = _.intersection(command.backingData.filtered.loadBalancers, command.loadBalancers);
         var removed = _.xor(matched, current);
         command.loadBalancers = matched;
+        configureBackendServiceOptions(command);
+
         if (removed.length) {
           results.dirty.loadBalancers = removed;
         }
       }
-      command.backingData.filtered.loadBalancers = newLoadBalancers;
       return results;
+    }
+
+    function configureBackendServiceOptions(command) {
+      /*
+        a server group has a list of backend services, but there's no mapping from l7 -> backend service
+        for the server group. this will not populate the wizard perfectly,
+        but it is the best we can do with the given data.
+      */
+
+      let backendsFromMetadata = command.backendServiceMetadata;
+      let lbIndex = command.backingData.filtered.loadBalancerIndex;
+
+      let backendServices = command.loadBalancers.reduce((backendServices, lbName) => {
+        if (elSevenUtils.isElSeven(lbIndex[lbName])) {
+          backendServices[lbName] = _.intersection(lbIndex[lbName].backendServices, backendsFromMetadata);
+        }
+        return backendServices;
+      }, {});
+
+      if (Object.keys(backendServices).length > 0) {
+        command.backendServices = backendServices;
+      }
+
     }
 
     function extractFilteredImages(command) {
@@ -352,6 +439,26 @@ module.exports = angular.module('spinnaker.serverGroup.configure.gce.configurati
     }
 
     function attachEventHandlers(command) {
+      command.regionalChanged = function regionalChanged() {
+        var result = { dirty: {} };
+        var filteredData = command.backingData.filtered;
+        var defaults = settings.providers.gce.defaults;
+        if (command.regional) {
+          command.zone = null;
+        } else if (!command.zone) {
+          if (command.region === defaults.region) {
+            command.zone = defaults.zone;
+          } else {
+            command.zone = filteredData.zones[0];
+          }
+
+          angular.extend(result.dirty, configureZones(command).dirty);
+        }
+
+        command.viewState.dirty = command.viewState.dirty || {};
+        angular.extend(command.viewState.dirty, result.dirty);
+        return result;
+      };
 
       command.regionChanged = function regionChanged() {
         var result = { dirty: {} };
@@ -424,6 +531,26 @@ module.exports = angular.module('spinnaker.serverGroup.configure.gce.configurati
 
         command.viewState.dirty = command.viewState.dirty || {};
         angular.extend(command.viewState.dirty, result.dirty);
+
+        return result;
+      };
+
+      command.zoneChanged = function zoneChanged() {
+        var result = { dirty: { } };
+        if (command.zone === undefined && !command.regional) {
+          result.dirty.zone = true;
+        }
+        command.viewState.dirty = command.viewState.dirty || {};
+        angular.extend(command.viewState.dirty, result.dirty);
+        angular.extend(command.viewState.dirty, configureInstanceTypes(command).dirty);
+        return result;
+      };
+
+      command.customInstanceChanged = function customInstanceChanged() {
+        var result = { dirty : { } };
+
+        command.viewState.dirty = command.viewState.dirty || {};
+        angular.extend(result, command.viewState.dirty, configureCustomInstanceTypes(command).dirty);
 
         return result;
       };

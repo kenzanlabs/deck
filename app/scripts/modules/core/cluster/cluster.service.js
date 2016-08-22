@@ -6,18 +6,18 @@ let angular = require('angular');
 
 module.exports = angular.module('spinnaker.core.cluster.service', [
   require('../naming/naming.service.js'),
-  require('exports?"restangular"!imports?_=lodash!restangular'),
+  require('../api/api.service'),
   require('../utils/lodash.js'),
   require('../serverGroup/serverGroup.transformer.js'),
   require('../job/job.transformer.js'),
 ])
-  .factory('clusterService', function ($q, Restangular, _, serverGroupTransformer,
+  .factory('clusterService', function ($q, API, _, serverGroupTransformer,
                                        jobTransformer, namingService) {
 
     function loadServerGroups(applicationName) {
       var serverGroupLoader = $q.all({
-        serverGroups: Restangular.one('applications', applicationName).all('serverGroups').getList().then(g => g, () => []),
-        jobs: Restangular.one('applications', applicationName).all('jobs').getList().then(jobs => jobs, () => []),
+        serverGroups: API.one('applications').one(applicationName).all('serverGroups').getList().then(g => g, () => []),
+        jobs: API.one('applications').one(applicationName).all('jobs').getList().then(jobs => jobs, () => []),
       });
       return serverGroupLoader.then(function(results) {
         results.serverGroups = results.serverGroups || [];
@@ -64,12 +64,12 @@ module.exports = angular.module('spinnaker.core.cluster.service', [
         unknown: 0,
         starting: 0,
         outOfService: 0,
+        succeeded: 0,
+        failed: 0,
         total: 0,
       };
-      if (!cluster.serverGroups) {
-        return;
-      }
-      cluster.serverGroups.forEach(function(serverGroup) {
+      var operand = cluster.serverGroups || cluster.jobs || [];
+      operand.forEach(function(serverGroup) {
         if (!serverGroup.instanceCounts) {
           return;
         }
@@ -79,11 +79,13 @@ module.exports = angular.module('spinnaker.core.cluster.service', [
         cluster.instanceCounts.unknown += serverGroup.instanceCounts.unknown || 0;
         cluster.instanceCounts.starting += serverGroup.instanceCounts.starting || 0;
         cluster.instanceCounts.outOfService += serverGroup.instanceCounts.outOfService || 0;
+        cluster.instanceCounts.succeeded += serverGroup.instanceCounts.succeeded || 0;
+        cluster.instanceCounts.failed += serverGroup.instanceCounts.failed || 0;
       });
     }
 
     function baseTaskMatcher(task, serverGroup) {
-      var taskRegion = task.getValueFor('regions') ? task.getValueFor('regions')[0] : null;
+      var taskRegion = task.getValueFor('regions') ? task.getValueFor('regions')[0] : task.getValueFor('region') || null;
       return serverGroup.account === task.getValueFor('credentials') &&
         serverGroup.region === taskRegion &&
         serverGroup.name === task.getValueFor('asgName');
@@ -146,6 +148,7 @@ module.exports = angular.module('spinnaker.core.cluster.service', [
       'enableservergroup': baseTaskMatcher,
       'enablegoogleservergroup': baseTaskMatcher,
       'disablegoogleservergroup': baseTaskMatcher,
+      'resumeasgprocessesdescription': baseTaskMatcher, // fun fact, this is how an AWS resize starts
       'rollbackServerGroup': function(task, serverGroup) {
         var account = task.getValueFor('credentials'),
             region = task.getValueFor('regions') ? task.getValueFor('regions')[0] : null;
@@ -174,7 +177,10 @@ module.exports = angular.module('spinnaker.core.cluster.service', [
         return; // still run if there are no running tasks, since they may have all finished and we need to clear them.
       }
       application.serverGroups.data.forEach(function(serverGroup) {
-        serverGroup.runningTasks = [];
+        if (!serverGroup.runningTasks) {
+          serverGroup.runningTasks = [];
+        }
+        serverGroup.runningTasks.length = 0;
         runningTasks.forEach(function(task) {
           if (taskMatches(task, serverGroup)) {
             serverGroup.runningTasks.push(task);
@@ -278,11 +284,11 @@ module.exports = angular.module('spinnaker.core.cluster.service', [
     }
 
     function getCluster(application, account, cluster) {
-      return Restangular.one('applications', application).one('clusters', account).one(cluster).get();
+      return API.one('applications').one(application).one('clusters', account).one(cluster).get();
     }
 
     function getClusters(application) {
-      return Restangular.one('applications', application).one('clusters').get();
+      return API.one('applications').one(application).one('clusters').get();
     }
 
     function addServerGroupsToApplication(application, serverGroups = []) {

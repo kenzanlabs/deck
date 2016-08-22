@@ -37,7 +37,6 @@ describe('Service: awsServerGroupConfiguration', function () {
               {
                 name: 'us-east-1',
                 loadBalancers: [
-                  { region: 'us-east-1', vpcId: null, name: 'elb-1' },
                   { region: 'us-east-1', vpcId: 'vpc-1', name: 'elb-1' },
                 ]
               }
@@ -54,7 +53,6 @@ describe('Service: awsServerGroupConfiguration', function () {
               {
                 name: 'us-east-1',
                 loadBalancers: [
-                  { region: 'us-east-1', vpcId: null, name: 'elb-2' },
                   { region: 'us-east-1', vpcId: 'vpc-2', name: 'elb-2' },
                 ]
               },
@@ -193,7 +191,8 @@ describe('Service: awsServerGroupConfiguration', function () {
     it('matches existing load balancers based on name - no VPC', function () {
       var result = service.configureLoadBalancerOptions(this.command);
 
-      expect(this.command.loadBalancers).toEqual(['elb-1']);
+      expect(this.command.loadBalancers).toEqual([]);
+      expect(this.command.vpcLoadBalancers).toEqual(['elb-1']);
       expect(result).toEqual({ dirty: { }});
     });
 
@@ -212,6 +211,22 @@ describe('Service: awsServerGroupConfiguration', function () {
 
       expect(this.command.loadBalancers).toEqual(['elb-2']);
       expect(result).toEqual({ dirty: { loadBalancers: ['elb-1']}});
+    });
+
+    it('moves load balancers to vpcLoadBalancers when vpc is de-selected', function () {
+      this.command.loadBalancers = ['elb-1'];
+      this.command.vpcId = 'vpc-1';
+      var result = service.configureLoadBalancerOptions(this.command);
+
+      expect(this.command.loadBalancers).toEqual(['elb-1']);
+      expect(result).toEqual({ dirty: {} });
+
+      this.command.vpcId = null;
+      result = service.configureLoadBalancerOptions(this.command);
+      expect(result).toEqual({ dirty: {} });
+      expect(this.command.vpcLoadBalancers).toEqual(['elb-1']);
+      expect(this.command.loadBalancers).toEqual([]);
+
     });
 
     it('sets dirty all unmatched load balancers - VPC', function () {
@@ -350,7 +365,7 @@ describe('Service: awsServerGroupConfiguration', function () {
           filtered: {},
           credentialsKeyedByAccount: {
             test: {
-              defaultKeyPair: 'test-pair'
+              defaultKeyPair: 'test-pair-{{region}}'
             },
             prod: {
               defaultKeyPair: 'prod-pair'
@@ -358,9 +373,11 @@ describe('Service: awsServerGroupConfiguration', function () {
             nothing: {}
           },
           keyPairs: [
-            { account: 'test', region: 'us-west-1', keyName: 'test-pair' },
-            { account: 'test', region: 'us-east-1', keyName: 'test-pair' },
+            { account: 'test', region: 'us-west-1', keyName: 'test-pair-us-west-1' },
+            { account: 'test', region: 'us-east-1', keyName: 'test-pair-us-east-1' },
             { account: 'test', region: 'us-west-1', keyName: 'shared' },
+            { account: 'test', region: 'eu-west-1', keyName: 'odd-pair' },
+            { account: 'test', region: 'eu-west-1', keyName: 'other-pair' },
             { account: 'prod', region: 'us-west-1', keyName: 'prod-pair' },
             { account: 'prod', region: 'us-west-1', keyName: 'shared' },
           ]
@@ -379,24 +396,32 @@ describe('Service: awsServerGroupConfiguration', function () {
 
     it('retains keyPair when found in new region', function() {
       this.command.region = 'us-east-1';
-      this.command.keyPair = 'test-pair';
+      this.command.keyPair = 'test-pair-us-west-1';
       service.configureKeyPairs(this.command);
-      expect(this.command.keyPair).toBe('test-pair');
+      expect(this.command.keyPair).toBe('test-pair-us-east-1');
     });
 
-    it('marks dirty, sets to new default value when key pair not found in new account', function() {
+    it('sets to new default value when changing account and using default key pair without marking dirty', function() {
       this.command.credentials = 'prod';
-      this.command.keyPair = 'test-pair';
+      this.command.keyPair = 'test-pair-us-west-1';
       var result = service.configureKeyPairs(this.command);
-      expect(result.dirty.keyPair).toBe(true);
+      expect(result.dirty.keyPair).toBeFalsy();
       expect(this.command.keyPair).toBe('prod-pair');
     });
 
-    it('marks dirty, sets to default value when key pair not found in new region', function() {
+    it('sets to new default value when changing region and using default key pair without marking dirty', function() {
       this.command.region = 'us-east-1';
+      this.command.keyPair = 'test-pair-us-west-1';
+      var result = service.configureKeyPairs(this.command);
+      expect(result.dirty.keyPair).toBeFalsy();
+      expect(this.command.keyPair).toBe('test-pair-us-east-1');
+    });
+
+    it('marks dirty, sets to first value found when default not present in new region', function () {
+      this.command.region = 'eu-west-1';
       var result = service.configureKeyPairs(this.command);
       expect(result.dirty.keyPair).toBe(true);
-      expect(this.command.keyPair).toBe('test-pair');
+      expect(this.command.keyPair).toBe(null);
     });
 
   });

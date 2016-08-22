@@ -29,9 +29,9 @@
       </tr>
       </thead>
       <tbody>
-      <tr class="clickable" ng-repeat="application in fp.filteredResultPage()" ui-sref="home.applications.application.properties({ application: application.name.toLowerCase() })">
+      <tr class="clickable" ng-repeat="application in fp.filteredResultPage()" ui-sref="home.applications.application.propInsights.properties({ application: application.name.toLowerCase() })">
         <td>
-          <a ui-sref="home.applications.application.properties({ application: application.name.toLowerCase() })" ng-click="$event.preventDefault()">
+          <a ui-sref="home.applications.application.propInsights.properties({ application: application.name.toLowerCase() })" ng-click="$event.preventDefault()">
             {{ application.name.toLowerCase() }}
           </a>
         </td>
@@ -47,9 +47,10 @@
 
 
     <uib-pagination ng-if="fp.applications"
-                total-items="fp.filteredCount()"
-                max-size="fp.pagination.maxSize"
-                ng-model="fp.pagination.currentPage">
+                    items-per-page="fp.pagination.itemsPerPage"
+                    total-items="fp.filteredCount()"
+                    max-size="fp.pagination.maxSize"
+                    ng-model="fp.pagination.currentPage">
     </uib-pagination>
   </div>
 

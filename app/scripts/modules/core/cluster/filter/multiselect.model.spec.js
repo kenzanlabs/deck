@@ -74,7 +74,7 @@ describe('Multiselect Model', function () {
 
       describe('server group selection', function () {
         beforeEach(function() {
-          this.serverGroup = {name: 'a', account: 'prod', region: 'us-east-1', type: 'aws'};
+          this.serverGroup = {name: 'a', account: 'prod', region: 'us-east-1', type: 'aws', category: 'serverGroup'};
         });
 
         it('navigates to multipleServerGroups child view when not already there and group is selected', function () {
@@ -109,7 +109,8 @@ describe('Multiselect Model', function () {
           name: 'asg-v001',
           account: 'prod',
           region: 'us-east-1',
-          type: 'aws'
+          type: 'aws',
+          category: 'serverGroup'
         };
       });
 
@@ -150,6 +151,25 @@ describe('Multiselect Model', function () {
         MultiselectModel.toggleServerGroup(this.serverGroup);
         expect(MultiselectModel.serverGroups.length).toBe(0);
         expect(onNextCalls).toBe(2);
+      });
+
+      it('handles multiple server groups', function () {
+        let otherServerGroup = {
+          name: 'asg-v002',
+          account: 'prod',
+          region: 'us-east-1',
+          type: 'aws',
+          category: 'serverGroup'
+        };
+
+        expect(MultiselectModel.serverGroups.length).toBe(0);
+        MultiselectModel.toggleServerGroup(this.serverGroup);
+        MultiselectModel.toggleServerGroup(otherServerGroup);
+        expect(MultiselectModel.serverGroups.length).toBe(2);
+
+        MultiselectModel.toggleServerGroup(this.serverGroup);
+        expect(MultiselectModel.serverGroups.length).toBe(1);
+        expect(MultiselectModel.serverGroups[0].name).toBe('asg-v002');
       });
     });
 
@@ -255,6 +275,12 @@ describe('Multiselect Model', function () {
         this.instanceGroup = MultiselectModel.getOrCreateInstanceGroup(this.serverGroup);
 
         spyOn(MultiselectModel, 'syncNavigation');
+      });
+
+      it('clears server groups', function () {
+        MultiselectModel.toggleServerGroup(this.serverGroup);
+        MultiselectModel.toggleSelectAll(this.serverGroup);
+        expect(MultiselectModel.serverGroups.length).toBe(0);
       });
 
       it('sets selectAll flag to true and adds supplied instanceIds when selectAll is false', function () {

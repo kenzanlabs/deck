@@ -11,7 +11,6 @@ module.exports = angular.module('spinnaker.google.serverGroup.configure.wizard.b
   require('../../../../../core/image/image.reader.js'),
   require('../../../../../core/naming/naming.service.js'),
   require('../../../../gceRegionSelectField.directive.js'),
-  require('../../../../gceZoneSelectField.directive.js'),
   require('../../../../gceNetworkSelectField.directive.js'),
   require('../../../../subnet/subnetSelectField.directive.js'),
 ])
@@ -96,14 +95,5 @@ module.exports = angular.module('spinnaker.google.serverGroup.configure.wizard.b
         return null;
       }
     };
-
-    $scope.$watch('form.$valid', function(newVal) {
-      if (newVal) {
-        v2modalWizardService.markClean('location');
-        v2modalWizardService.markComplete('location');
-      } else {
-        v2modalWizardService.markIncomplete('location');
-      }
-    });
 
   });

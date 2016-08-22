@@ -19,8 +19,9 @@ module.exports = angular.module('spinnaker.serverGroup.details.gce.controller', 
   require('../../../core/insight/insightFilterState.model.js'),
   require('./resize/resizeServerGroup.controller'),
   require('./rollback/rollbackServerGroup.controller'),
-  require('./scalingPolicy/scalingPolicy.directive.js'),
+  require('./autoscalingPolicy/autoscalingPolicy.directive.js'),
   require('../../../core/utils/selectOnDblClick.directive.js'),
+  require('./autoscalingPolicy/addAutoscalingPolicyButton.component.js')
 ])
   .controller('gceServerGroupDetailsCtrl', function ($scope, $state, $templateCache, $interpolate, app, serverGroup, InsightFilterStateModel,
                                                      gceServerGroupCommandBuilder, serverGroupReader, $uibModal, confirmationModalService, _, serverGroupWriter,
@@ -69,12 +70,11 @@ module.exports = angular.module('spinnaker.serverGroup.details.gce.controller', 
       return serverGroupReader.getServerGroup(app.name, serverGroup.accountId, serverGroup.region, serverGroup.name).then((details) => {
         cancelLoader();
 
-        var plainDetails = details.plain();
-        angular.extend(plainDetails, summary);
+        angular.extend(details, summary);
         // it's possible the summary was not found because the clusters are still loading
-        plainDetails.account = serverGroup.accountId;
+        details.account = serverGroup.accountId;
 
-        this.serverGroup = plainDetails;
+        this.serverGroup = details;
         this.runningExecutions = () => {
           return runningExecutionsService.filterRunningExecutions(this.serverGroup.executions);
         };
@@ -87,6 +87,8 @@ module.exports = angular.module('spinnaker.serverGroup.details.gce.controller', 
             }).compact().value();
           }
 
+          this.serverGroup.zones.sort();
+
           this.serverGroup.network = getNetwork();
           retrieveSubnet();
 
@@ -98,6 +100,7 @@ module.exports = angular.module('spinnaker.serverGroup.details.gce.controller', 
           findStartupScript();
           prepareDiskDescriptions();
           prepareAvailabilityPolicies();
+          prepareAutoHealingPolicy();
           prepareAuthScopes();
           augmentTagsWithHelp();
         } else {
@@ -160,15 +163,24 @@ module.exports = angular.module('spinnaker.serverGroup.details.gce.controller', 
       }
     };
 
+    let prepareAutoHealingPolicy = () => {
+      if (this.serverGroup.autoHealingPolicy) {
+        let autoHealingPolicy = this.serverGroup.autoHealingPolicy;
+        let healthCheckUrl = autoHealingPolicy.healthCheck;
+
+        this.serverGroup.autoHealingPolicyHealthCheck = healthCheckUrl ? _.last(healthCheckUrl.split('/')) : null;
+        this.serverGroup.initialDelaySec = autoHealingPolicy.initialDelaySec;
+      }
+    };
+
     let prepareAuthScopes = () => {
       if (_.has(this.serverGroup, 'launchConfig.instanceTemplate.properties.serviceAccounts')) {
         let serviceAccounts = this.serverGroup.launchConfig.instanceTemplate.properties.serviceAccounts;
-        let defaultServiceAccount = _.find(serviceAccounts, serviceAccount => {
-          return serviceAccount.email === 'default';
-        });
+        if (serviceAccounts.length) {
+          let serviceAccount = this.serverGroup.launchConfig.instanceTemplate.properties.serviceAccounts[0];
 
-        if (defaultServiceAccount) {
-          this.serverGroup.authScopes = _.map(defaultServiceAccount.scopes, authScope => {
+          this.serverGroup.serviceAccountEmail = serviceAccount.email;
+          this.serverGroup.authScopes = _.map(serviceAccount.scopes, authScope => {
             return authScope.replace('https://www.googleapis.com/auth/', '');
           });
         }
@@ -252,7 +264,7 @@ module.exports = angular.module('spinnaker.serverGroup.details.gce.controller', 
         region: serverGroup.region
       };
 
-      confirmationModalService.confirm({
+      var confirmationModalParams = {
         header: 'Really destroy ' + serverGroup.name + '?',
         buttonText: 'Destroy ' + serverGroup.name,
         account: serverGroup.account,
@@ -260,6 +272,8 @@ module.exports = angular.module('spinnaker.serverGroup.details.gce.controller', 
         taskMonitorConfig: taskMonitor,
         submitMethod: submitMethod,
         askForReason: true,
+        platformHealthOnlyShowOverride: app.attributes.platformHealthOnlyShowOverride,
+        platformHealthType: 'Google',
         body: this.getBodyTemplate(serverGroup, app),
         onTaskComplete: () => {
           if ($state.includes('**.serverGroup', stateParams)) {
@@ -271,7 +285,13 @@ module.exports = angular.module('spinnaker.serverGroup.details.gce.controller', 
             $state.go('^');
           }
         }
-      });
+      };
+
+      if (app.attributes.platformHealthOnly) {
+        confirmationModalParams.interestingHealthProviderNames = ['Google'];
+      }
+
+      confirmationModalService.confirm(confirmationModalParams);
     };
 
     this.getBodyTemplate = (serverGroup, app) => {
@@ -387,8 +407,9 @@ module.exports = angular.module('spinnaker.serverGroup.details.gce.controller', 
     };
 
     this.showStartupScript = () => {
-      this.userDataModalTitle = 'Startup Script';
-      this.userData = this.serverGroup.startupScript;
+      $scope.userDataModalTitle = 'Startup Script';
+      $scope.serverGroup = { name: this.serverGroup.name };
+      $scope.userData = this.serverGroup.startupScript;
       $uibModal.open({
         templateUrl: require('../../../core/serverGroup/details/userData.html'),
         controller: 'CloseableModalCtrl',

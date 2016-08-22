@@ -4,7 +4,6 @@ let angular = require('angular');
 
 module.exports = angular
   .module('spinnaker.applications.read.service', [
-    require('exports?"restangular"!imports?_=lodash!restangular'),
     require('../../cluster/cluster.service.js'),
     require('../../task/task.read.service.js'),
     require('../../loadBalancer/loadBalancer.read.service.js'),
@@ -15,17 +14,15 @@ module.exports = angular
     require('../../pipeline/config/services/pipelineConfigService.js'),
     require('../../utils/rx.js'),
     require('../../utils/lodash.js'),
+    require('../../api/api.service'),
   ])
-  .factory('applicationReader', function ($q, $log, Restangular, _, rx, $http, settings, $location,
+  .factory('applicationReader', function ($q, $log, _, rx, $http, settings, $location, API,
                                             clusterService, taskReader, loadBalancerReader, securityGroupReader,
                                             schedulerFactory, pipelineConfigService, executionService,
                                             serverGroupTransformer) {
 
     function listApplications() {
-      return Restangular
-        .all('applications')
-        .withHttpConfig({cache: true})
-        .getList();
+      return API.one('applications').useCache().get();
     }
 
     let addTasks = (application, tasks) => {
@@ -123,11 +120,13 @@ module.exports = angular
         key: 'tasks',
         loader: loadTasks,
         onLoad: addTasks,
+        lazy: true,
       },
       {
         key: 'executions',
         loader: loadExecutions,
         onLoad: addExecutions,
+        lazy: true,
       },
       {
         key: 'loadBalancers',
@@ -138,6 +137,7 @@ module.exports = angular
         key: 'pipelineConfigs',
         loader: loadPipelineConfigs,
         onLoad: addPipelineConfigs,
+        lazy: true,
       },
       {
         key: 'securityGroups',
@@ -185,7 +185,7 @@ module.exports = angular
 
       section.ready = () => {
         let deferred = $q.defer();
-        if (section.loaded) {
+        if (section.loaded || (sectionConfig.lazy && !section.active)) {
           deferred.resolve();
         } else if (section.loadFailure) {
           deferred.reject();
@@ -196,7 +196,25 @@ module.exports = angular
         return deferred.promise;
       };
 
+      section.activate = () => {
+        if (!section.active) {
+          section.active = true;
+          if (!section.loaded) {
+            section.refresh();
+          }
+        }
+      };
+
+      section.deactivate = () => {
+        section.active = false;
+      };
+
       section.refresh = (forceRefresh) => {
+        if (sectionConfig.lazy && !section.active) {
+          section.data.length = 0;
+          section.loaded = false;
+          return $q.when(null);
+        }
         if (section.loading && !forceRefresh) {
           $log.warn(`${key} still loading, skipping refresh`);
           return $q.when(null);

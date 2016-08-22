@@ -3,15 +3,18 @@
 let angular = require('angular');
 
 module.exports = angular.module('spinnaker.gce.serverGroupCommandBuilder.service', [
-  require('exports?"restangular"!imports?_=lodash!restangular'),
   require('../../../core/cache/deckCacheFactory.js'),
   require('../../../core/account/account.service.js'),
   require('../../../core/instance/instanceTypeService.js'),
   require('../../../core/naming/naming.service.js'),
   require('../../../core/utils/lodash.js'),
+  require('./../../instance/custom/customInstanceBuilder.gce.service.js'),
+  require('./wizard/hiddenMetadataKeys.value.js'),
 ])
-  .factory('gceServerGroupCommandBuilder', function (settings, Restangular, $q,
-                                                     accountService, instanceTypeService, namingService, _) {
+  .factory('gceServerGroupCommandBuilder', function (settings, $q,
+                                                     accountService, instanceTypeService, namingService, _,
+                                                     gceCustomInstanceBuilderService,
+                                                     gceServerGroupHiddenMetadataKeys) {
 
     // Two assumptions here:
     //   1) All GCE machine types are represented in the tree of choices.
@@ -40,6 +43,16 @@ module.exports = angular.module('spinnaker.gce.serverGroupCommandBuilder.service
       return subnetworkUrl ? _.last(subnetworkUrl.split('/')) : null;
     }
 
+    function extractLoadBalancers(asg) {
+      return ['load-balancer-names', 'global-load-balancer-names']
+        .reduce((loadBalancers, property) => {
+          if (asg[property]) {
+            loadBalancers = loadBalancers.concat(asg[property]);
+          }
+          return loadBalancers;
+        }, []);
+    }
+
     function populateDisksFromExisting(disks, command) {
       let localSSDDisks = _.filter(disks, disk => {
         return disk.initializeParams.diskType === 'local-ssd';
@@ -55,7 +68,9 @@ module.exports = angular.module('spinnaker.gce.serverGroupCommandBuilder.service
         command.persistentDiskType = persistentDisk.initializeParams.diskType;
         command.persistentDiskSizeGb = persistentDisk.initializeParams.diskSizeGb;
 
-        return instanceTypeService.getInstanceTypeDetails(command.selectedProvider, command.instanceType).then(function(instanceTypeDetails) {
+        return instanceTypeService
+          .getInstanceTypeDetails(command.selectedProvider, _.startsWith(command.instanceType, 'custom') ? 'buildCustom' : command.instanceType)
+          .then(function(instanceTypeDetails) {
           command.viewState.instanceTypeDetails = instanceTypeDetails;
 
           calculateOverriddenStorageDescription(instanceTypeDetails, command);
@@ -83,7 +98,9 @@ module.exports = angular.module('spinnaker.gce.serverGroupCommandBuilder.service
         command.persistentDiskType = persistentDisk.type;
         command.persistentDiskSizeGb = persistentDisk.sizeGb;
 
-        return instanceTypeService.getInstanceTypeDetails(command.selectedProvider, command.instanceType).then(function(instanceTypeDetails) {
+        return instanceTypeService
+          .getInstanceTypeDetails(command.selectedProvider, _.startsWith(command.instanceType, 'custom') ? 'buildCustom' : command.instanceType)
+          .then(function(instanceTypeDetails) {
           command.viewState.instanceTypeDetails = instanceTypeDetails;
 
           calculateOverriddenStorageDescription(instanceTypeDetails, command);
@@ -120,22 +137,32 @@ module.exports = angular.module('spinnaker.gce.serverGroupCommandBuilder.service
       }
     }
 
+    function populateAutoHealingPolicy(serverGroup, command) {
+      if (serverGroup.autoHealingPolicy) {
+        let autoHealingPolicy = serverGroup.autoHealingPolicy;
+        let healthCheckUrl = autoHealingPolicy.healthCheck;
+        let autoHealingPolicyHealthCheck = healthCheckUrl ? _.last(healthCheckUrl.split('/')) : null;
+
+        if (autoHealingPolicyHealthCheck) {
+          command.autoHealingPolicy = {
+            healthCheck: autoHealingPolicyHealthCheck,
+            initialDelaySec: autoHealingPolicy.initialDelaySec,
+          };
+        }
+      }
+    }
+
     function populateCustomMetadata(metadataItems, command) {
+      // Hide metadata items in the wizard.
       if (metadataItems) {
         if (angular.isArray(metadataItems)) {
           metadataItems.forEach(function (metadataItem) {
-            // Don't show 'load-balancer-names' key/value pair in the wizard.
-            if (metadataItem.key !== 'load-balancer-names') {
+            if (!_.contains(gceServerGroupHiddenMetadataKeys, metadataItem.key)) {
               command.instanceMetadata[metadataItem.key] = metadataItem.value;
             }
           });
         } else {
-          for (var property in metadataItems) {
-            // Don't show 'load-balancer-names' key/value pair in the wizard.
-            if (property !== 'load-balancer-names') {
-              command.instanceMetadata[property] = metadataItems[property];
-            }
-          }
+          angular.extend(command.instanceMetadata, _.omit(metadataItems, gceServerGroupHiddenMetadataKeys));
         }
       }
     }
@@ -149,12 +176,9 @@ module.exports = angular.module('spinnaker.gce.serverGroupCommandBuilder.service
     }
 
     function populateAuthScopes(serviceAccounts, command) {
-      let defaultServiceAccount = _.find(serviceAccounts, serviceAccount => {
-        return serviceAccount.email === 'default';
-      });
-
-      if (defaultServiceAccount) {
-        command.authScopes = _.map(defaultServiceAccount.scopes, authScope => {
+      if (serviceAccounts && serviceAccounts.length) {
+        command.serviceAccountEmail = serviceAccounts[0].email;
+        command.authScopes = _.map(serviceAccounts[0].scopes, authScope => {
           return authScope.replace('https://www.googleapis.com/auth/', '');
         });
       } else {
@@ -189,9 +213,11 @@ module.exports = angular.module('spinnaker.gce.serverGroupCommandBuilder.service
 
       var command = {
         application: application.name,
+        autoscalingPolicy: {},
         credentials: defaultCredentials,
         region: defaultRegion,
         zone: defaultZone,
+        regional: false, // TODO(duftler): Externalize this default alongside defaultRegion and defaultZone.
         network: 'default',
         strategy: '',
         capacity: {
@@ -199,6 +225,7 @@ module.exports = angular.module('spinnaker.gce.serverGroupCommandBuilder.service
           max: 0,
           desired: 1
         },
+        backendServiceMetadata: [],
         persistentDiskType: 'pd-ssd',
         persistentDiskSizeGb: 10,
         localSSDCount: 1,
@@ -207,12 +234,14 @@ module.exports = angular.module('spinnaker.gce.serverGroupCommandBuilder.service
         preemptible: false,
         automaticRestart: true,
         onHostMaintenance: 'MIGRATE',
+        serviceAccountEmail: 'default',
         authScopes: [
           'cloud.useraccounts.readonly',
           'devstorage.read_only',
           'logging.write',
           'monitoring.write',
         ],
+        enableTraffic: true,
         cloudProvider: 'gce',
         selectedProvider: 'gce',
         availabilityZones: [],
@@ -248,16 +277,18 @@ module.exports = angular.module('spinnaker.gce.serverGroupCommandBuilder.service
 
     function buildServerGroupCommandFromExisting(application, serverGroup, mode) {
       mode = mode || 'clone';
-
       var serverGroupName = namingService.parseServerGroupName(serverGroup.name);
 
       var command = {
         application: application.name,
+        autoscalingPolicy: serverGroup.autoscalingPolicy || {},
         strategy: '',
         stack: serverGroupName.stack,
         freeFormDetails: serverGroupName.freeFormDetails,
         credentials: serverGroup.account,
-        loadBalancers: serverGroup.asg.loadBalancerNames,
+        loadBalancers: extractLoadBalancers(serverGroup.asg),
+        loadBalancingPolicy: _.cloneDeep(serverGroup.loadBalancingPolicy),
+        backendServiceMetadata: serverGroup.asg['backend-service-names'],
         securityGroups: serverGroup.securityGroups,
         region: serverGroup.region,
         capacity: {
@@ -265,18 +296,18 @@ module.exports = angular.module('spinnaker.gce.serverGroupCommandBuilder.service
           max: serverGroup.asg.maxSize,
           desired: serverGroup.asg.desiredCapacity
         },
-        zone: serverGroup.zones[0],
+        regional: serverGroup.regional,
         network: extractNetworkName(serverGroup),
         subnet: extractSubnetName(serverGroup),
         instanceMetadata: {},
         tags: [],
         availabilityZones: [],
+        enableTraffic: true,
         cloudProvider: 'gce',
         selectedProvider: 'gce',
         source: {
           account: serverGroup.account,
           region: serverGroup.region,
-          zone: serverGroup.zones[0],
           serverGroupName: serverGroup.name,
           asgName: serverGroup.name
         },
@@ -290,14 +321,28 @@ module.exports = angular.module('spinnaker.gce.serverGroupCommandBuilder.service
         },
       };
 
+      if (!command.regional) {
+        command.zone = serverGroup.zones[0];
+        command.source.zone = serverGroup.zones[0];
+      }
+
       if (application && application.attributes && application.attributes.platformHealthOnly) {
         command.interestingHealthProviderNames = ['Google'];
       }
 
+      populateAutoHealingPolicy(serverGroup, command);
+
       if (serverGroup.launchConfig) {
+        let instanceType = serverGroup.launchConfig.instanceType;
         angular.extend(command, {
-          instanceType: serverGroup.launchConfig.instanceType,
+          instanceType: instanceType,
         });
+
+        if (_.startsWith(instanceType, 'custom')) {
+          command.viewState.customInstance = gceCustomInstanceBuilderService.parseInstanceTypeString(instanceType);
+          command.viewState.instanceProfile = 'buildCustom';
+        }
+
         command.viewState.imageId = serverGroup.launchConfig.imageId;
         return determineInstanceCategoryFromInstanceType(command).then(function() {
           populateAvailabilityPolicies(serverGroup.launchConfig.instanceTemplate.properties.scheduling, command);
@@ -337,6 +382,7 @@ module.exports = angular.module('spinnaker.gce.serverGroupCommandBuilder.service
         var viewOverrides = {
           region: region,
           credentials: pipelineCluster.account,
+          enableTraffic: !pipelineCluster.disableTraffic,
           viewState: viewState,
         };
 

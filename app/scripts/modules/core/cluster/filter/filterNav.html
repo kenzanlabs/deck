@@ -26,17 +26,17 @@
   </filter-section>
 
   <filter-section heading="Region" expanded="true">
-    <div class="checkbox" ng-repeat="heading in clustersFilters.regionHeadings | orderBy: 'toString()' ">
+    <div class="checkbox" ng-repeat="heading in clustersFilters.getRegionHeadings() | orderBy: 'toString()' ">
       <label>
         <input type="checkbox" ng-model="sortFilter.region[heading]" ng-change="clustersFilters.updateClusterGroups()"/>{{heading}}
       </label>
     </div>
   </filter-section>
 
-  <filter-section heading="Category" expanded="true">
-    <div class="checkbox" ng-repeat="category in clustersFilters.categoryHeadings | orderBy: 'toString()' ">
+  <filter-section heading="Category" expanded="true" ng-if="clustersFilters.categoryHeadings.length > 1">
+    <div class="checkbox" ng-repeat="heading in clustersFilters.categoryHeadings | orderBy: 'toString()' ">
       <label>
-        <input type="checkbox" ng-model="sortFilter.category[heading]" ng-change="clustersFilters.updateClusterGroups()"/>{{heading}}
+        <input type="checkbox" ng-model="sortFilter.category[heading]" ng-change="clustersFilters.updateClusterGroups()"/>{{heading | robotToHuman}}
       </label>
     </div>
   </filter-section>

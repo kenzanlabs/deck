@@ -154,6 +154,9 @@ module.exports = angular.module('spinnaker.netflix.pipeline.stage.canary.transfo
           if (_.some(deployStages, { status: 'TERMINAL' })) {
             status = 'TERMINAL';
           }
+          if (_.some(deployStages, { status: 'SKIPPED' })) {
+            status = 'SKIPPED';
+          }
           var canaryStatus = stage.context.canary.status;
           if (canaryStatus && status !== 'CANCELED') {
             if (canaryStatus.status === 'LAUNCHED' || monitorStage.status === 'RUNNING') {
@@ -200,7 +203,8 @@ module.exports = angular.module('spinnaker.netflix.pipeline.stage.canary.transfo
 
           stage.tasks = tasks;
 
-          stage.context.canary.canaryDeployments.forEach(function(deployment, deploymentIdx) {
+          let deployments = stage.context.canary.canaryDeployments.filter(d => d.baselineCluster && d.canaryCluster);
+          deployments.forEach(function(deployment, deploymentIdx) {
 
             deployment.id = deployment.id || deploymentIdx;
 
@@ -238,7 +242,7 @@ module.exports = angular.module('spinnaker.netflix.pipeline.stage.canary.transfo
 
             // verify the server groups are present - if this is a project-level pipeline, the application will be an
             // empty object
-            if (deployedClusterPair && application.serverGroups) {
+            if (deployedClusterPair && deployedClusterPair.baselineCluster && deployedClusterPair.canaryCluster && application.serverGroups) {
               var canaryServerGroup = _.find(application.serverGroups.data, {
                 name: deployedClusterPair.canaryCluster.serverGroup,
                 account: deployedClusterPair.canaryCluster.accountName,

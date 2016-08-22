@@ -11,11 +11,25 @@ module.exports = angular.module('spinnaker.serverGroup.configure.kubernetes.conf
 ])
   .factory('kubernetesServerGroupConfigurationService', function($q, accountService, kubernetesImageReader, _,
                                                                  loadBalancerReader, cacheInitializer) {
-    function configureCommand(application, command) {
+    function configureCommand(application, command, query = '') {
+
+      // this ensures we get the images we need when cloning or copying a server group template.
+      let queries = command.containers
+        .map(c => formatQuery(grabImageAndTag(c.imageDescription.imageId)));
+
+      queries.push(formatQuery(query));
+
+      let imagesPromise = $q.all(queries
+        .map(q => kubernetesImageReader.findImages({
+          provider: 'dockerRegistry',
+          count: 50,
+          q: q })))
+        .then(_.flatten);
+
       return $q.all({
         accounts: accountService.listAccounts('kubernetes'),
         loadBalancers: loadBalancerReader.listLoadBalancers('kubernetes'),
-        allImages: kubernetesImageReader.findImages({ provider: 'dockerRegistry' }),
+        allImages: imagesPromise
       }).then(function(backingData) {
         backingData.filtered = {};
         backingData.securityGroups = [];
@@ -38,6 +52,14 @@ module.exports = angular.module('spinnaker.serverGroup.configure.kubernetes.conf
       });
     }
 
+    function formatQuery(query) {
+      return `*${query}*`;
+    }
+
+    function grabImageAndTag(imageId) {
+      return imageId.split('/').pop();
+    }
+
     function mapImageToContainer(command) {
       return (image) => {
         return {
@@ -50,6 +72,7 @@ module.exports = angular.module('spinnaker.serverGroup.configure.kubernetes.conf
             fromContext: image.fromContext,
             fromTrigger: image.fromTrigger,
             cluster: image.cluster,
+            account: image.account,
             pattern: image.pattern,
             stageId: image.stageId,
           },
@@ -165,9 +188,11 @@ module.exports = angular.module('spinnaker.serverGroup.configure.kubernetes.conf
     function configureAccount(command) {
       var result = { dirty: {} };
       command.backingData.account = command.backingData.accountMap[command.account];
-      angular.extend(result.dirty, configureDockerRegistries(command).dirty);
-      angular.extend(result.dirty, configureNamespaces(command).dirty);
-      angular.extend(result.dirty, configureSecurityGroups(command).dirty);
+      if (command.backingData.account) {
+        angular.extend(result.dirty, configureDockerRegistries(command).dirty);
+        angular.extend(result.dirty, configureNamespaces(command).dirty);
+        angular.extend(result.dirty, configureSecurityGroups(command).dirty);
+      }
       return result;
     }
 
