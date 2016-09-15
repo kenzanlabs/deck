@@ -69,6 +69,18 @@ module.exports = angular.module('spinnaker.aws.serverGroup.transformer', [
       };
     }
 
+    function updateDeploymentMetadataTag(command) {
+      if (command.useAmiBlockDeviceMappings) {
+        command.tags['spinnaker:deploymentMetadata'] = 'ami';
+      } else if (command.blockDevices && command.blockDevices.length > 0) {
+        if (command.tags['spinnaker:deploymentMetadata'] !== 'custom:freeform') {
+          command.tags['spinnaker:deploymentMetadata'] = 'custom:generated';
+        }
+      } else {
+        command.tags['spinnaker:deploymentMetadata'] = 'default';
+      }
+    }
+
     function convertServerGroupCommandToDeployConfiguration(base) {
       // use _.defaults to avoid copying the backingData, which is huge and expensive to copy over
       var command = _.defaults({backingData: [], viewState: []}, base);
@@ -93,6 +105,7 @@ module.exports = angular.module('spinnaker.aws.serverGroup.transformer', [
       if (!command.subnetType) {
         command.subnetType = '';
       }
+      updateDeploymentMetadataTag(command);
       return command;
     }
 
