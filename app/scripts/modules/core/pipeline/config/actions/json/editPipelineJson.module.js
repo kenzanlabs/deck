@@ -16,6 +16,21 @@ module.exports = angular.module('spinnaker.core.pipeline.config.actions.editJson
       delete obj.id;
     }
 
+    function updateDeploymentMetadataTags(origPipelineJSON, newPipelineJSON) {
+      for (let i = 0; i < newPipelineJSON.stages.length; i++) {
+        let stage = newPipelineJSON.stages[i];
+        if (stage.type === 'deploy') {
+          for (let j = 0; j < stage.clusters.length; j++) {
+            let cluster = stage.clusters[j];
+            if (origPipelineJSON.stages[i] && origPipelineJSON.stages[i].clusters[j] &&
+                !_.isEqual(cluster.blockDevices, origPipelineJSON.stages[i].clusters[j].blockDevices)) {
+              cluster.tags['spinnaker:deploymentMetadata'] = 'custom:freeform';
+            }
+          }
+        }
+      }
+    }
+
     this.initialize = function() {
       var toCopy = pipeline;
       var pipelineCopy = _.cloneDeep(toCopy, function (value) {
@@ -27,6 +42,7 @@ module.exports = angular.module('spinnaker.core.pipeline.config.actions.editJson
 
       $scope.isStrategy = pipelineCopy.strategy || false;
 
+      this.originalPipelineJSON = pipelineCopy;
       $scope.command = {
         pipelineJSON: JSON.stringify(pipelineCopy, null, 2)
       };
@@ -38,6 +54,7 @@ module.exports = angular.module('spinnaker.core.pipeline.config.actions.editJson
         parsed.appConfig = parsed.appConfig || {};
 
         removeImmutableFields(parsed);
+        updateDeploymentMetadataTags(this.originalPipelineJSON, parsed);
         angular.extend(pipeline, parsed);
         $uibModalInstance.close();
       } catch (e) {
