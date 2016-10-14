@@ -23,10 +23,16 @@ module.exports = angular
         currentBlocks = this.command.blockDevices && this.command.blockDevices.length;
 
     this.numberOfBlockDevices = currentBlocks ? currentBlocks : '';
-    this.volumeType = currentBlocks ? this.command.blockDevices[0].volumeType : 'gp2';
-    this.size = currentBlocks ? this.command.blockDevices[0].size : '';
+    this.volumeType = currentBlocks
+        ? this.command.blockDevices[0].volumeType || this.command.blockDevices[0].ebs.volumeType
+            : 'gp2';
+    this.size = currentBlocks
+        ? this.command.blockDevices[0].size || this.command.blockDevices[0].ebs.volumeSize
+            : '';
     this.sizeRequired = !!currentBlocks;
-    this.deleteOnTermination = currentBlocks ? this.command.blockDevices[0].deleteOnTermination : true;
+    this.deleteOnTermination = currentBlocks
+        ? this.command.blockDevices[0].deleteOnTermination || this.command.blockDevices[0].ebs.deleteOnTermination
+            : true;
     this.volumeSizeMin = 1;
     this.volumeSizeMax = 16384;
     this.volumeTypes = {

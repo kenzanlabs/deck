@@ -213,6 +213,13 @@ module.exports = angular.module('spinnaker.aws.serverGroupCommandBuilder.service
           },
         };
 
+        var deploymentMetadata = _.find(serverGroup.asg.tags, function (tag) {
+          return tag.key === 'spinnaker:deploymentMetadata';
+        });
+        if (deploymentMetadata.value === 'ami') {
+          command.useAmiBlockDeviceMappings = true;
+        }
+
         if (application && application.attributes && application.attributes.platformHealthOnly) {
           command.interestingHealthProviderNames = ['Amazon'];
         }
@@ -247,6 +254,7 @@ module.exports = angular.module('spinnaker.aws.serverGroupCommandBuilder.service
             ramdiskId: serverGroup.launchConfig.ramdiskId,
             instanceMonitoring: serverGroup.launchConfig.instanceMonitoring.enabled,
             ebsOptimized: serverGroup.launchConfig.ebsOptimized,
+            blockDevices: serverGroup.launchConfig.blockDeviceMappings,
           });
           if (serverGroup.launchConfig.userData) {
             command.base64UserData = serverGroup.launchConfig.userData;
